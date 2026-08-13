@@ -498,6 +498,31 @@ describe Sord::Generator do
     RUBY
   end
 
+  it 'handles a method with a solargraph-style type variable and a yielding block' do
+    YARD.parse_string(<<-RUBY)
+      class ThreadLocal
+        # @generic U
+        # @param name [Symbol]
+        # @param value [Object]
+        # @return [generic<U>]
+        # @yieldreturn [generic<U>] block return value
+        def with_thread_local_variable(name, value, &block)
+        end
+      end
+    RUBY
+
+    expect(rbi_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      # typed: strong
+      class ThreadLocal
+        # _@param_ `name`
+        # #{''}
+        # _@param_ `value`
+        sig { params(name: Symbol, value: Object, block: T.proc.returns(T.type_parameter(:U))).returns(T.type_parameter(:U)) }
+        def with_thread_local_variable(name, value, &block); end
+      end
+    RUBY
+  end
+
   it 'handles void yieldreturn' do
     YARD.parse_string(<<-RUBY)
       module A
