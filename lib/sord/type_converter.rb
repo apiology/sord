@@ -6,8 +6,16 @@ require 'parlour'
 require 'yard/tags/library'
 
 # Declares the @generic tag (Solargraph's convention for naming a type
-# variable on a class/module) so YARD doesn't discard it as unknown.
-YARD::Tags::Library.define_tag('Generic Type Variable', :generic)
+# variable on a class/module) so YARD doesn't discard it as unknown, using
+# the same factory as the yard-solargraph plugin's own registration
+# (:with_types_and_name, matching @generic's `[Bound] Name` grammar - bounds
+# aren't otherwise supported by sord, but this determines which of tag.name
+# vs tag.text holds the variable's name). If yard-solargraph is loaded too,
+# whichever registers last wins for the process that actually parses the
+# docs (e.g. a separate `yard doc` invocation before `sord gen
+# --no-regenerate`) - since both use this factory, the parsed result is the
+# same either way.
+YARD::Tags::Library.define_tag('Generic Type Variable', :generic, :with_types_and_name)
 
 module Sord
   # Contains methods to convert YARD types to Parlour types.
@@ -308,12 +316,12 @@ module Sord
     def self.type_variable_scope(name, item)
       return nil unless item
 
-      if item.respond_to?(:tags) && item.tags(:generic).any? { |tag| tag.text.to_s.strip == name }
+      if item.respond_to?(:tags) && item.tags(:generic).any? { |tag| tag.name.to_s.strip == name }
         return :method
       end
 
       if item.respond_to?(:namespace) && item.namespace.respond_to?(:tags) &&
-          item.namespace.tags(:generic).any? { |tag| tag.text.to_s.strip == name }
+          item.namespace.tags(:generic).any? { |tag| tag.name.to_s.strip == name }
         return :namespace
       end
 

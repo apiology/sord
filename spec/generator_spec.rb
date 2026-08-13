@@ -646,6 +646,38 @@ describe Sord::Generator do
     RUBY
   end
 
+  it 'handles a method-scoped type variable with no other tags on the method' do
+    # Regression test: yard-solargraph registers @generic with a
+    # :with_types_and_name tag factory, which puts the variable's name in
+    # tag.name, not tag.text. Reading tag.text (as sord originally did) came
+    # back empty, and with no method-scoped declaration found, `generic<V>`
+    # fell through to being resolved as an ordinary (and often unrelated)
+    # constant reference instead of a bound type variable. See
+    # https://github.com/AaronC81/sord/pull/185#issuecomment-5286523841
+    YARD.parse_string(<<-RUBY)
+      class Example
+        # @generic V
+        # @return [generic<V>]
+        def retry_asana
+        end
+      end
+    RUBY
+
+    expect(rbi_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      # typed: strong
+      class Example
+        sig { type_parameters(:V).returns(T.type_parameter(:V)) }
+        def retry_asana; end
+      end
+    RUBY
+
+    expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      class Example
+        def retry_asana: [V] () -> V
+      end
+    RUBY
+  end
+
   it 'handles void yieldreturn' do
     YARD.parse_string(<<-RUBY)
       module A

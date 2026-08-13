@@ -307,7 +307,7 @@ module Sord
     # @param method [YARD::CodeObjects::MethodObject]
     # @return [Array<Symbol>]
     def generic_type_parameter_names(method)
-      method_tags(method, 'generic').map { |tag| tag.text.to_s.strip.to_sym }
+      method_tags(method, 'generic').map { |tag| tag.name.to_s.strip.to_sym }
     end
 
     # Given a YARD NamespaceObject, add lines defining its methods and their
@@ -628,7 +628,7 @@ module Sord
       # A solargraph-style @generic tag directly on this class/module makes
       # it generic: a real Sorbet type_member per name for :rbi, or a
       # type_parameters: entry in the class/module header for :rbs.
-      type_variable_names = item.tags('generic').map { |tag| tag.text.to_s.strip.to_sym }
+      type_variable_names = item.tags('generic').map { |tag| tag.name.to_s.strip.to_sym }
 
       parent = @current_object
       @current_object =
