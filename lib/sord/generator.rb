@@ -481,7 +481,8 @@ module Sord
             [Parlour::RbsGenerator::MethodSignature.new(
               parlour_params, returns, block: rbs_block && !rbs_block.is_a?(Parlour::Types::Untyped) \
                 ? Parlour::RbsGenerator::Block.new(rbs_block, false)
-                : nil
+                : nil,
+              type_parameters: method_tags(meth, 'generic').map { |tag| tag.text.to_s.strip.to_sym }
             )],
             class_method: meth.scope == :class
           ) do |m|

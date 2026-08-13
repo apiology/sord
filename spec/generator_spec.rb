@@ -521,6 +521,50 @@ describe Sord::Generator do
         def with_thread_local_variable(name, value, &block); end
       end
     RUBY
+
+    expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      class ThreadLocal
+        # _@param_ `name`
+        # #{''}
+        # _@param_ `value`
+        def with_thread_local_variable: [U] (Symbol name, Object value) ?{ () -> U } -> U
+      end
+    RUBY
+  end
+
+  it 'handles a solargraph-style type variable used as a param and yieldparam, as well as a return and yieldreturn' do
+    YARD.parse_string(<<-RUBY)
+      class ThreadLocal
+        # @generic U
+        # @param name [Symbol]
+        # @param value [generic<U>]
+        # @yieldparam value [generic<U>] value passed to the block
+        # @yieldreturn [generic<U>] block return value
+        # @return [generic<U>]
+        def with_thread_local_variable(name, value, &block)
+        end
+      end
+    RUBY
+
+    expect(rbi_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      # typed: strong
+      class ThreadLocal
+        # _@param_ `name`
+        # #{''}
+        # _@param_ `value`
+        sig { params(name: Symbol, value: T.type_parameter(:U), block: T.proc.params(value: T.type_parameter(:U)).returns(T.type_parameter(:U))).returns(T.type_parameter(:U)) }
+        def with_thread_local_variable(name, value, &block); end
+      end
+    RUBY
+
+    expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      class ThreadLocal
+        # _@param_ `name`
+        # #{''}
+        # _@param_ `value`
+        def with_thread_local_variable: [U] (Symbol name, U value) ?{ (U value) -> U } -> U
+      end
+    RUBY
   end
 
   it 'handles void yieldreturn' do
