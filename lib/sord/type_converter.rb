@@ -209,47 +209,47 @@ module Sord
 
         if relative_generic_type == 'generic' && yard_parameters.length == 1 &&
             declared_type_variable?(yard_parameters.first, item)
-          Parlour::Types::TypeParameter.new(yard_parameters.first)
-        else
-          parameters = yard_parameters
-            .map { |x| yard_to_parlour(x, item, config) }
-          if SINGLE_ARG_GENERIC_TYPES.include?(relative_generic_type) && yard_parameters.length > 1
-            Parlour::Types.const_get(relative_generic_type).new(yard_to_parlour(yard_parameters, item, config))
-          elsif relative_generic_type == 'generic'
-            if parameters.length == 1
-              # used by solargraph to indicate a type variable.  Until
-              # Parlour needs to support separate namespaces, convert to
-              # the same namespaces as raw types:
-              parameters.first
-            else
-              handle_sord_error(parameters.map(&:describe).join,
-                                "Invalid generic<>, must have exactly one type variable: #{yard.inspect}.", item,
-                                config.replace_errors_with_untyped)
-            end
-          elsif relative_generic_type == 'Class'
-            if parameters.length == 1
-              Parlour::Types::Class.new(parameters.first)
-            else
-              Parlour::Types::Union.new(parameters.map { |x| Parlour::Types::Class.new(x) })
-            end
-          elsif relative_generic_type == 'Hash'
-            if parameters.length == 2
-              Parlour::Types::Hash.new(*parameters)
-            else
-              handle_sord_error(parameters.map(&:describe).join, "Invalid hash, must have exactly two types: #{yard.inspect}.", item, config.replace_errors_with_untyped)
-            end
+          return Parlour::Types::TypeParameter.new(yard_parameters.first)
+        end
+
+        parameters = yard_parameters
+          .map { |x| yard_to_parlour(x, item, config) }
+        if SINGLE_ARG_GENERIC_TYPES.include?(relative_generic_type) && yard_parameters.length > 1
+          Parlour::Types.const_get(relative_generic_type).new(yard_to_parlour(yard_parameters, item, config))
+        elsif relative_generic_type == 'generic'
+          if parameters.length == 1
+            # used by solargraph to indicate a type variable.  Until
+            # Parlour needs to support separate namespaces, convert to
+            # the same namespaces as raw types:
+            parameters.first
           else
-            if Parlour::Types.constants.include?(relative_generic_type.to_sym)
-              # This generic is built in to parlour, but sord doesn't
-              # explicitly know about it.
-              Parlour::Types.const_get(relative_generic_type).new(*parameters)
-            else
-              # This is a user defined generic
-              Parlour::Types::Generic.new(
-                yard_to_parlour(generic_type, nil, config),
-                parameters
-              )
-            end
+            handle_sord_error(parameters.map(&:describe).join,
+                              "Invalid generic<>, must have exactly one type variable: #{yard.inspect}.", item,
+                              config.replace_errors_with_untyped)
+          end
+        elsif relative_generic_type == 'Class'
+          if parameters.length == 1
+            Parlour::Types::Class.new(parameters.first)
+          else
+            Parlour::Types::Union.new(parameters.map { |x| Parlour::Types::Class.new(x) })
+          end
+        elsif relative_generic_type == 'Hash'
+          if parameters.length == 2
+            Parlour::Types::Hash.new(*parameters)
+          else
+            handle_sord_error(parameters.map(&:describe).join, "Invalid hash, must have exactly two types: #{yard.inspect}.", item, config.replace_errors_with_untyped)
+          end
+        else
+          if Parlour::Types.constants.include?(relative_generic_type.to_sym)
+            # This generic is built in to parlour, but sord doesn't
+            # explicitly know about it.
+            Parlour::Types.const_get(relative_generic_type).new(*parameters)
+          else
+            # This is a user defined generic
+            Parlour::Types::Generic.new(
+              yard_to_parlour(generic_type, nil, config),
+              parameters
+            )
           end
         end
       # Converts ordered lists like Array(Symbol, String) or (Symbol, String)
