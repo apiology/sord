@@ -517,7 +517,7 @@ describe Sord::Generator do
         # _@param_ `name`
         # #{''}
         # _@param_ `value`
-        sig { params(name: Symbol, value: Object, block: T.proc.returns(T.type_parameter(:U))).returns(T.type_parameter(:U)) }
+        sig { type_parameters(:U).params(name: Symbol, value: Object, block: T.proc.returns(T.type_parameter(:U))).returns(T.type_parameter(:U)) }
         def with_thread_local_variable(name, value, &block); end
       end
     RUBY
@@ -552,7 +552,7 @@ describe Sord::Generator do
         # _@param_ `name`
         # #{''}
         # _@param_ `value`
-        sig { params(name: Symbol, value: T.type_parameter(:U), block: T.proc.params(value: T.type_parameter(:U)).returns(T.type_parameter(:U))).returns(T.type_parameter(:U)) }
+        sig { type_parameters(:U).params(name: Symbol, value: T.type_parameter(:U), block: T.proc.params(value: T.type_parameter(:U)).returns(T.type_parameter(:U))).returns(T.type_parameter(:U)) }
         def with_thread_local_variable(name, value, &block); end
       end
     RUBY

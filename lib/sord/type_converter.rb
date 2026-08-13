@@ -3,7 +3,6 @@ require 'yaml'
 require 'sord/logging'
 require 'sord/resolver'
 require 'parlour'
-require 'sord/type_parameter'
 require 'yard/tags/library'
 
 # Declares the @generic tag (Solargraph's convention for naming a type
@@ -209,7 +208,7 @@ module Sord
 
         if relative_generic_type == 'generic' && yard_parameters.length == 1 &&
             declared_type_variable?(yard_parameters.first, item)
-          return Parlour::Types::TypeParameter.new(yard_parameters.first)
+          return Parlour::Types::TypeVariable.new(yard_parameters.first)
         end
 
         parameters = yard_parameters

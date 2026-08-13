@@ -471,7 +471,8 @@ module Sord
             meth.name.to_s,
             parameters: parlour_params,
             returns: returns,
-            class_method: meth.scope == :class
+            class_method: meth.scope == :class,
+            type_parameters: method_tags(meth, 'generic').map { |tag| tag.text.to_s.strip.to_sym }
           ) do |m|
             add_comments(meth, m)
           end
