@@ -299,6 +299,20 @@ module Sord
       method.overridden_method.tag(tag_name)
     end
 
+    # The names of type variables this method needs to declare in its own
+    # signature: those named by a solargraph-style `@generic` tag on the
+    # method itself, or on its owning namespace (the usual convention for a
+    # generic class/module).
+    # @param method [YARD::CodeObjects::MethodObject]
+    # @return [Array<Symbol>]
+    def generic_type_parameter_names(method)
+      names = method_tags(method, 'generic').map { |tag| tag.text.to_s.strip }
+      names |= method.namespace.tags('generic').map { |tag| tag.text.to_s.strip } \
+        if method.respond_to?(:namespace)
+
+      names.map(&:to_sym)
+    end
+
     # Given a YARD NamespaceObject, add lines defining its methods and their
     # signatures to the current file.
     # @param [YARD::CodeObjects::NamespaceObject] item
@@ -472,7 +486,7 @@ module Sord
             parameters: parlour_params,
             returns: returns,
             class_method: meth.scope == :class,
-            type_parameters: method_tags(meth, 'generic').map { |tag| tag.text.to_s.strip.to_sym }
+            type_parameters: generic_type_parameter_names(meth)
           ) do |m|
             add_comments(meth, m)
           end
@@ -483,7 +497,7 @@ module Sord
               parlour_params, returns, block: rbs_block && !rbs_block.is_a?(Parlour::Types::Untyped) \
                 ? Parlour::RbsGenerator::Block.new(rbs_block, false)
                 : nil,
-              type_parameters: method_tags(meth, 'generic').map { |tag| tag.text.to_s.strip.to_sym }
+              type_parameters: generic_type_parameter_names(meth)
             )],
             class_method: meth.scope == :class
           ) do |m|
