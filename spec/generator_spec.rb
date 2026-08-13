@@ -584,21 +584,24 @@ describe Sord::Generator do
       # typed: strong
       # @generic U
       class ThreadLocal
+        extend T::Generic
+        U = type_member
+
         # _@param_ `name`
         # #{''}
         # _@param_ `value`
-        sig { type_parameters(:U).params(name: Symbol, value: Object, block: T.proc.returns(T.type_parameter(:U))).returns(T.type_parameter(:U)) }
+        sig { params(name: Symbol, value: Object, block: T.proc.returns(U)).returns(U) }
         def with_thread_local_variable(name, value, &block); end
       end
     RUBY
 
     expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
       # @generic U
-      class ThreadLocal
+      class ThreadLocal[U]
         # _@param_ `name`
         # #{''}
         # _@param_ `value`
-        def with_thread_local_variable: [U] (Symbol name, Object value) ?{ () -> U } -> U
+        def with_thread_local_variable: (Symbol name, Object value) ?{ () -> U } -> U
       end
     RUBY
   end
@@ -621,21 +624,24 @@ describe Sord::Generator do
       # typed: strong
       # @generic U
       class ThreadLocal
+        extend T::Generic
+        U = type_member
+
         # _@param_ `name`
         # #{''}
         # _@param_ `value`
-        sig { type_parameters(:U).params(name: Symbol, value: T.type_parameter(:U), block: T.proc.params(value: T.type_parameter(:U)).returns(T.type_parameter(:U))).returns(T.type_parameter(:U)) }
+        sig { params(name: Symbol, value: U, block: T.proc.params(value: U).returns(U)).returns(U) }
         def with_thread_local_variable(name, value, &block); end
       end
     RUBY
 
     expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
       # @generic U
-      class ThreadLocal
+      class ThreadLocal[U]
         # _@param_ `name`
         # #{''}
         # _@param_ `value`
-        def with_thread_local_variable: [U] (Symbol name, U value) ?{ (U value) -> U } -> U
+        def with_thread_local_variable: (Symbol name, U value) ?{ (U value) -> U } -> U
       end
     RUBY
   end

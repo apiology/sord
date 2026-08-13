@@ -206,9 +206,20 @@ module Sord
 
         yard_parameters = split_type_parameters(type_parameters)
 
-        if relative_generic_type == 'generic' && yard_parameters.length == 1 &&
-            declared_type_variable?(yard_parameters.first, item)
-          return Parlour::Types::TypeVariable.new(yard_parameters.first)
+        if relative_generic_type == 'generic' && yard_parameters.length == 1
+          case type_variable_scope(yard_parameters.first, item)
+          when :method
+            # Sorbet/RBS represent a reference to a method-scoped type
+            # variable specially (T.type_parameter(:U) / bare U bound by the
+            # method's own [U] (...) signature).
+            return Parlour::Types::TypeVariable.new(yard_parameters.first)
+          when :namespace
+            # A class/module-scoped type variable is a real constant (RBI's
+            # `X = type_member`) or a name bound by the class/module's own
+            # header (RBS's `class Box[T]`); either way it's referenced with
+            # a bare name, like any other type.
+            return Parlour::Types::Raw.new(yard_parameters.first)
+          end
         end
 
         parameters = yard_parameters
@@ -287,19 +298,26 @@ module Sord
 
     # Checks whether the given name has been declared as a type variable via
     # a solargraph-style `@generic` tag on the given item, or the item's
-    # owning namespace.
+    # owning namespace, and reports which: this determines how a reference to
+    # it must be rendered (see the `generic<...>` handling above). A tag on
+    # the item itself takes priority over one on its namespace.
     #
     # @param [String] name
     # @param [YARD::CodeObjects::Base, nil] item
-    # @return [Boolean]
-    def self.declared_type_variable?(name, item)
-      candidates = [item]
-      candidates << item.namespace if item.respond_to?(:namespace)
+    # @return [:method, :namespace, nil]
+    def self.type_variable_scope(name, item)
+      return nil unless item
 
-      candidates.compact.any? do |candidate|
-        next false unless candidate.respond_to?(:tags)
-        candidate.tags(:generic).any? { |tag| tag.text.to_s.strip == name }
+      if item.respond_to?(:tags) && item.tags(:generic).any? { |tag| tag.text.to_s.strip == name }
+        return :method
       end
+
+      if item.respond_to?(:namespace) && item.namespace.respond_to?(:tags) &&
+          item.namespace.tags(:generic).any? { |tag| tag.text.to_s.strip == name }
+        return :namespace
+      end
+
+      nil
     end
 
     # Handles SORD_ERRORs.
