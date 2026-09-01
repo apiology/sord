@@ -733,14 +733,11 @@ module Sord
       return pair_type_order[pair1_type] <=> pair_type_order[pair2_type]
     end
 
-    # YARD convention documents a splat/double-splat parameter's *collected*
-    # type (e.g. "@param args [Array<String>]" for *args, or
-    # "@param kwargs [Hash{Symbol => Object}]" for **kwargs), but RBI/RBS
-    # splat syntax wants the type of each individual vararg/kwarg value.
-    # Strip exactly one collection layer to go from one convention to the
-    # other: an Array's element type for a splat, a Hash's value type for a
-    # double-splat. Any other shape (a normal parameter, or a splat/
-    # double-splat type that isn't wrapped in Array/Hash) is returned as-is.
+    # YARD documents a splat/double-splat's collected type (Array<String>
+    # for *args, Hash{K=>V} for **kwargs), but RBI/RBS splat syntax wants
+    # each individual vararg/kwarg value's type. Strips exactly one
+    # Array/Hash layer to convert between the two; anything else (a normal
+    # parameter, or a type not wrapped in Array/Hash) passes through as-is.
     # @param [Parlour::Types::Type] type
     # @param [String] name
     # @return [Parlour::Types::Type]
