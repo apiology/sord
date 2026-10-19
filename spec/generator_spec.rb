@@ -1862,6 +1862,28 @@ END
         end
       RUBY
 
+      expect(rbi_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+        # typed: strong
+        class A
+          sig { returns(Numeric) }
+          attr_reader :x
+
+          sig { returns(Numeric) }
+          attr_accessor :y
+        end
+
+        class B < A
+          sig { returns(Integer) }
+          attr_reader :x
+
+          sig { returns(Integer) }
+          attr_accessor :y
+
+          sig { returns(String) }
+          attr_reader :z
+        end
+      RUBY
+
       expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
         class A
           attr_reader x: Numeric
