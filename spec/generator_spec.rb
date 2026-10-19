@@ -527,7 +527,7 @@ describe Sord::Generator do
         # _@param_ `name`
         # #{''}
         # _@param_ `value`
-        def with_thread_local_variable: [U] (Symbol name, Object value) ?{ () -> U } -> U
+        def with_thread_local_variable: [U] (Symbol name, Object value) { () -> U } -> U
       end
     RUBY
   end
@@ -562,7 +562,7 @@ describe Sord::Generator do
         # _@param_ `name`
         # #{''}
         # _@param_ `value`
-        def with_thread_local_variable: [U] (Symbol name, U value) ?{ (U value) -> U } -> U
+        def with_thread_local_variable: [U] (Symbol name, U value) { (U value) -> U } -> U
       end
     RUBY
   end
@@ -601,7 +601,7 @@ describe Sord::Generator do
         # _@param_ `name`
         # #{''}
         # _@param_ `value`
-        def with_thread_local_variable: (Symbol name, Object value) ?{ () -> U } -> U
+        def with_thread_local_variable: (Symbol name, Object value) { () -> U } -> U
       end
     RUBY
   end
@@ -641,7 +641,7 @@ describe Sord::Generator do
         # _@param_ `name`
         # #{''}
         # _@param_ `value`
-        def with_thread_local_variable: (Symbol name, U value) ?{ (U value) -> U } -> U
+        def with_thread_local_variable: (Symbol name, U value) { (U value) -> U } -> U
       end
     RUBY
   end
