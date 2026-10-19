@@ -447,13 +447,13 @@ module Sord
               )
             when :rbs
               if name.start_with?('&')
-                # An untyped block still accepts any block
-                rbs_block = type.is_a?(Parlour::Types::Untyped) \
-                  ? Parlour::Types::Proc.new(
+                # RBS blocks need a proc type; accept any block otherwise
+                rbs_block = type.is_a?(Parlour::Types::Proc) \
+                  ? type
+                  : Parlour::Types::Proc.new(
                       [Parlour::Types::Proc::Parameter.new('*args', Parlour::Types::Untyped.new)],
                       Parlour::Types::Untyped.new
                     )
-                  : type
                 nil
               else
                 Parlour::RbsGenerator::Parameter.new(

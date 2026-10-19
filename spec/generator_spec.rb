@@ -575,6 +575,23 @@ describe Sord::Generator do
     RUBY
   end
 
+  it 'handles block parameters documented with a non-proc type' do
+    YARD.parse_string(<<-RUBY)
+      module A
+        # @param &block [Proc]
+        # @return [void]
+        def foo(&block); end
+      end
+    RUBY
+
+    expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      module A
+        # _@param_ `&block`
+        def foo: () ?{ (*untyped args) -> untyped } -> void
+      end
+    RUBY
+  end
+
   it 'handle multiline comment correctly' do
     YARD.parse_string(<<-RUBY)
       module A
