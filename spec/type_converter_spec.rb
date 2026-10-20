@@ -379,6 +379,17 @@ describe Sord::TypeConverter do
         # Doesn't affect RBI, where these interfaces don't exist
         expect(yard_to_parlour_default('#to_s')).to eq Types::Untyped.new
       end
+
+      it 'uses nil rather than NilClass for nil type parameters' do
+        expect(subject.yard_to_parlour('Array(String, nil)', nil, config)).to eq \
+          Types::Tuple.new(['String', 'nil'])
+        expect(subject.yard_to_parlour('Array<nil>', nil, config)).to eq \
+          Types::Array.new('nil')
+
+        # Doesn't affect RBI, where nil is not a valid type
+        expect(yard_to_parlour_default('Array(String, nil)')).to eq \
+          Types::Tuple.new(['String', 'NilClass'])
+      end
     end
   end
 end

@@ -143,7 +143,8 @@ module Sord
       when nil # Type not specified
         Parlour::Types::Untyped.new
       when "nil"
-        Parlour::Types::Raw.new('NilClass')
+        # RBS spells the nil type `nil`; Sorbet has no `nil` type, only `NilClass`
+        Parlour::Types::Raw.new(config.output_language == :rbs ? 'nil' : 'NilClass')
       when  "bool", "Bool", "boolean", "Boolean", "true", "false"
         Parlour::Types::Boolean.new
       when "undefined" # solargraph convention
