@@ -83,7 +83,7 @@ describe Sord::TypeConverter do
 
     context 'with literals' do
       it 'converts literals to their types' do
-        expect(yard_to_parlour_default('nil')).to eq Types::Raw.new('NilClass')
+        expect(yard_to_parlour_default('nil')).to eq Types::Nil.new
         expect(yard_to_parlour_default([':up', ':down'])).to eq Types::Raw.new('Symbol')
         expect(yard_to_parlour_default(['String', ':up', ':down'])).to eq \
           Types::Union.new(['String', 'Symbol'])
@@ -371,14 +371,14 @@ describe Sord::TypeConverter do
       end
 
       it 'uses nil rather than NilClass for nil type parameters' do
-        expect(subject.yard_to_parlour('Array(String, nil)', nil, config)).to eq \
-          Types::Tuple.new(['String', 'nil'])
-        expect(subject.yard_to_parlour('Array<nil>', nil, config)).to eq \
-          Types::Array.new('nil')
+        expect(subject.yard_to_parlour('Array(String, nil)', nil, config).generate_rbs).to eq \
+          '[String, nil]'
+        expect(subject.yard_to_parlour('Array<nil>', nil, config).generate_rbs).to eq \
+          '::Array[nil]'
 
         # Doesn't affect RBI, where nil is not a valid type
-        expect(yard_to_parlour_default('Array(String, nil)')).to eq \
-          Types::Tuple.new(['String', 'NilClass'])
+        expect(yard_to_parlour_default('Array(String, nil)').generate_rbi).to eq \
+          '[String, NilClass]'
       end
     end
   end
