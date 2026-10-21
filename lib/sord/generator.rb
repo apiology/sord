@@ -299,6 +299,24 @@ module Sord
       method.overridden_method.tag(tag_name)
     end
 
+    # YARD cannot mark a block as optional, so a @yield description starting
+    # with "Optional" does instead. Blocks are otherwise required.
+    # @param method [YARD::CodeObjects::MethodObject]
+    # @return [Boolean]
+    def optional_block?(method)
+      method_tag(method, 'yield')&.text&.match?(/\Aoptional\b/i) || false
+    end
+
+    # @param type [Parlour::Types::Proc, Parlour::Types::Nilable]
+    # @return [Parlour::RbsGenerator::Block]
+    def rbs_block_for(type)
+      if type.is_a?(Parlour::Types::Nilable)
+        Parlour::RbsGenerator::Block.new(type.type, false)
+      else
+        Parlour::RbsGenerator::Block.new(type, true)
+      end
+    end
+
     # Given a YARD NamespaceObject, add lines defining its methods and their
     # signatures to the current file.
     # @param [YARD::CodeObjects::NamespaceObject] item
@@ -370,7 +388,8 @@ module Sord
             if yieldparams.empty? && yieldreturn.nil?
               Parlour::Types::Untyped.new
             else
-              Parlour::Types::Proc.new(params, yieldreturn.nil? ? nil : returns)
+              proc_type = Parlour::Types::Proc.new(params, yieldreturn.nil? ? nil : returns)
+              optional_block?(meth) ? Parlour::Types::Nilable.new(proc_type) : proc_type
             end
           elsif meth.path.end_with? '='
             # Look for the matching getter method
@@ -448,11 +467,13 @@ module Sord
             when :rbs
               if name.start_with?('&')
                 # RBS blocks need a proc type; accept any block otherwise
-                rbs_block = type.is_a?(Parlour::Types::Proc) \
+                rbs_block = type.is_a?(Parlour::Types::Proc) || type.is_a?(Parlour::Types::Nilable) \
                   ? type
-                  : Parlour::Types::Proc.new(
-                      [Parlour::Types::Proc::Parameter.new('*args', Parlour::Types::Untyped.new)],
-                      Parlour::Types::Untyped.new
+                  : Parlour::Types::Nilable.new(
+                      Parlour::Types::Proc.new(
+                        [Parlour::Types::Proc::Parameter.new('*args', Parlour::Types::Untyped.new)],
+                        Parlour::Types::Untyped.new
+                      )
                     )
                 nil
               else
@@ -485,7 +506,7 @@ module Sord
           @current_object.create_method(
             meth.name.to_s,
             [Parlour::RbsGenerator::MethodSignature.new(
-              parlour_params, returns, block: rbs_block && Parlour::RbsGenerator::Block.new(rbs_block, false)
+              parlour_params, returns, block: rbs_block && rbs_block_for(rbs_block)
             )],
             class_method: meth.scope == :class
           ) do |m|
