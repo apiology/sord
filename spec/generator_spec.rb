@@ -462,7 +462,7 @@ describe Sord::Generator do
     expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
       module A
         # _@param_ `x`
-        def foo: (String x) ?{ (Integer a, Float b) -> bool } -> bool
+        def foo: (String x) { (Integer a, Float b) -> bool } -> bool
       end
     RUBY
   end
@@ -493,7 +493,187 @@ describe Sord::Generator do
     expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
       module A
         # _@param_ `x`
-        def foo: (String x) ?{ (Integer a, Float b) -> bool } -> bool
+        def foo: (String x) { (Integer a, Float b) -> bool } -> bool
+      end
+    RUBY
+  end
+
+  it 'handles a method with a solargraph-style type variable and a yielding block' do
+    YARD.parse_string(<<-RUBY)
+      class ThreadLocal
+        # @generic U
+        # @param name [Symbol]
+        # @param value [Object]
+        # @return [generic<U>]
+        # @yieldreturn [generic<U>] block return value
+        def with_thread_local_variable(name, value, &block)
+        end
+      end
+    RUBY
+
+    expect(rbi_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      # typed: strong
+      class ThreadLocal
+        # _@param_ `name`
+        # #{''}
+        # _@param_ `value`
+        sig { type_parameters(:U).params(name: Symbol, value: Object, block: T.proc.returns(T.type_parameter(:U))).returns(T.type_parameter(:U)) }
+        def with_thread_local_variable(name, value, &block); end
+      end
+    RUBY
+
+    expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      class ThreadLocal
+        # _@param_ `name`
+        # #{''}
+        # _@param_ `value`
+        def with_thread_local_variable: [U] (Symbol name, Object value) { () -> U } -> U
+      end
+    RUBY
+  end
+
+  it 'handles a solargraph-style type variable used as a param and yieldparam, as well as a return and yieldreturn' do
+    YARD.parse_string(<<-RUBY)
+      class ThreadLocal
+        # @generic U
+        # @param name [Symbol]
+        # @param value [generic<U>]
+        # @yieldparam value [generic<U>] value passed to the block
+        # @yieldreturn [generic<U>] block return value
+        # @return [generic<U>]
+        def with_thread_local_variable(name, value, &block)
+        end
+      end
+    RUBY
+
+    expect(rbi_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      # typed: strong
+      class ThreadLocal
+        # _@param_ `name`
+        # #{''}
+        # _@param_ `value`
+        sig { type_parameters(:U).params(name: Symbol, value: T.type_parameter(:U), block: T.proc.params(value: T.type_parameter(:U)).returns(T.type_parameter(:U))).returns(T.type_parameter(:U)) }
+        def with_thread_local_variable(name, value, &block); end
+      end
+    RUBY
+
+    expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      class ThreadLocal
+        # _@param_ `name`
+        # #{''}
+        # _@param_ `value`
+        def with_thread_local_variable: [U] (Symbol name, U value) { (U value) -> U } -> U
+      end
+    RUBY
+  end
+
+  it 'handles a class-scoped solargraph-style type variable and a yielding block' do
+    YARD.parse_string(<<-RUBY)
+      # @generic U
+      class ThreadLocal
+        # @param name [Symbol]
+        # @param value [Object]
+        # @return [generic<U>]
+        # @yieldreturn [generic<U>] block return value
+        def with_thread_local_variable(name, value, &block)
+        end
+      end
+    RUBY
+
+    expect(rbi_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      # typed: strong
+      # @generic U
+      class ThreadLocal
+        extend T::Generic
+        U = type_member
+
+        # _@param_ `name`
+        # #{''}
+        # _@param_ `value`
+        sig { params(name: Symbol, value: Object, block: T.proc.returns(U)).returns(U) }
+        def with_thread_local_variable(name, value, &block); end
+      end
+    RUBY
+
+    expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      # @generic U
+      class ThreadLocal[U]
+        # _@param_ `name`
+        # #{''}
+        # _@param_ `value`
+        def with_thread_local_variable: (Symbol name, Object value) { () -> U } -> U
+      end
+    RUBY
+  end
+
+  it 'handles a class-scoped solargraph-style type variable used as a param and yieldparam, as well as a return and yieldreturn' do
+    YARD.parse_string(<<-RUBY)
+      # @generic U
+      class ThreadLocal
+        # @param name [Symbol]
+        # @param value [generic<U>]
+        # @yieldparam value [generic<U>] value passed to the block
+        # @yieldreturn [generic<U>] block return value
+        # @return [generic<U>]
+        def with_thread_local_variable(name, value, &block)
+        end
+      end
+    RUBY
+
+    expect(rbi_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      # typed: strong
+      # @generic U
+      class ThreadLocal
+        extend T::Generic
+        U = type_member
+
+        # _@param_ `name`
+        # #{''}
+        # _@param_ `value`
+        sig { params(name: Symbol, value: U, block: T.proc.params(value: U).returns(U)).returns(U) }
+        def with_thread_local_variable(name, value, &block); end
+      end
+    RUBY
+
+    expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      # @generic U
+      class ThreadLocal[U]
+        # _@param_ `name`
+        # #{''}
+        # _@param_ `value`
+        def with_thread_local_variable: (Symbol name, U value) { (U value) -> U } -> U
+      end
+    RUBY
+  end
+
+  it 'handles a method-scoped type variable with no other tags on the method' do
+    # Regression test: yard-solargraph registers @generic with a
+    # :with_types_and_name tag factory, which puts the variable's name in
+    # tag.name, not tag.text. Reading tag.text (as sord originally did) came
+    # back empty, and with no method-scoped declaration found, `generic<V>`
+    # fell through to being resolved as an ordinary (and often unrelated)
+    # constant reference instead of a bound type variable. See
+    # https://github.com/AaronC81/sord/pull/185#issuecomment-5286523841
+    YARD.parse_string(<<-RUBY)
+      class Example
+        # @generic V
+        # @return [generic<V>]
+        def retry_asana
+        end
+      end
+    RUBY
+
+    expect(rbi_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      # typed: strong
+      class Example
+        sig { type_parameters(:V).returns(T.type_parameter(:V)) }
+        def retry_asana; end
+      end
+    RUBY
+
+    expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      class Example
+        def retry_asana: [V] () -> V
       end
     RUBY
   end
@@ -518,7 +698,7 @@ describe Sord::Generator do
 
     expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
       module A
-        def self.foo: () ?{ (Symbol foo) -> void } -> void
+        def self.foo: () { (Symbol foo) -> void } -> void
       end
     RUBY
   end
@@ -544,7 +724,75 @@ describe Sord::Generator do
 
     expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
       module A
-        def self.foo: () ?{ (Symbol arg0, String arg1) -> void } -> void
+        def self.foo: () { (Symbol arg0, String arg1) -> void } -> void
+      end
+    RUBY
+  end
+
+  it 'makes blocks optional when @yield starts with Optional' do
+    YARD.parse_string(<<-RUBY)
+      module A
+        # @yield Optional. Called with each item
+        # @yieldparam [Integer] item
+        # @return [void]
+        def foo(&blk); end
+      end
+    RUBY
+
+    expect(rbi_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      # typed: strong
+      module A
+        sig { params(blk: T.nilable(T.proc.params(item: Integer).void)).void }
+        def foo(&blk); end
+      end
+    RUBY
+
+    expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      module A
+        def foo: () ?{ (Integer item) -> void } -> void
+      end
+    RUBY
+  end
+
+  it 'keeps block parameters without yield tags' do
+    YARD.parse_string(<<-RUBY)
+      module A
+        # @param message [Object, nil]
+        # @return [void]
+        def foo(message = nil, &block); end
+      end
+    RUBY
+
+    expect(rbi_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      # typed: strong
+      module A
+        # _@param_ `message`
+        sig { params(message: T.nilable(Object), block: T.untyped).void }
+        def foo(message = nil, &block); end
+      end
+    RUBY
+
+    expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      module A
+        # _@param_ `message`
+        def foo: (?Object? message) ?{ (*untyped args) -> untyped } -> void
+      end
+    RUBY
+  end
+
+  it 'handles block parameters documented with a non-proc type' do
+    YARD.parse_string(<<-RUBY)
+      module A
+        # @param &block [Proc]
+        # @return [void]
+        def foo(&block); end
+      end
+    RUBY
+
+    expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      module A
+        # _@param_ `&block`
+        def foo: () ?{ (*untyped args) -> untyped } -> void
       end
     RUBY
   end
@@ -569,7 +817,7 @@ describe Sord::Generator do
         # 
         # _@return_ — comment with multiple
         # line
-        sig { params(x: Integer, y: T::Array[String]).void }
+        sig { params(x: Integer, y: String).void }
         def foo(x, *y); end
       end
     RUBY
@@ -582,7 +830,7 @@ describe Sord::Generator do
         # 
         # _@return_ — comment with multiple
         # line
-        def foo: (Integer x, *::Array[String] y) -> void
+        def foo: (Integer x, *String y) -> void
       end
     RUBY
   end
@@ -603,7 +851,7 @@ describe Sord::Generator do
         # _@param_ `x`
         # 
         # _@param_ `y`
-        sig { params(x: Integer, y: T::Array[String]).void }
+        sig { params(x: Integer, y: String).void }
         def foo(x, *y); end
       end
     RUBY
@@ -613,7 +861,7 @@ describe Sord::Generator do
         # _@param_ `x`
         # 
         # _@param_ `y`
-        def foo: (Integer x, *::Array[String] y) -> void
+        def foo: (Integer x, *String y) -> void
       end
     RUBY
   end
@@ -1647,7 +1895,133 @@ END
                  ?b: untyped,
                  c: untyped,
                  **untyped rest
-               ) -> untyped
+               ) ?{ (*untyped args) -> untyped } -> untyped
+      end
+    RUBY
+  end
+
+  it 'unwraps the collected Array/Hash @param type on splat and double-splat parameters' do
+    YARD.parse_string(<<-RUBY)
+      module A
+        # @param args [Array<Object>]
+        def w(*args); end
+
+        # @param kwargs [Hash{Symbol => Object}]
+        def x(**kwargs); end
+
+        # @param kwargs [Hash<Symbol, Object>]
+        def v(**kwargs); end
+
+        # @param kwargs [Hash]
+        def y(**kwargs); end
+
+        # @param args [Array<Array<String>>]
+        def z(*args); end
+
+        # @param exclude [Array<String>]
+        def bar(*exclude); end
+
+        # @param task_selectors [Array<Array<Symbol, Array>>]
+        def merge_task_selectors(*task_selectors); end
+      end
+    RUBY
+
+    expect(rbi_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      # typed: strong
+      module A
+        # sord omit - no YARD return type given, using untyped
+        # _@param_ `args`
+        sig { params(args: Object).returns(T.untyped) }
+        def w(*args); end
+
+        # sord omit - no YARD return type given, using untyped
+        # _@param_ `kwargs`
+        sig { params(kwargs: Object).returns(T.untyped) }
+        def x(**kwargs); end
+
+        # sord omit - no YARD return type given, using untyped
+        # _@param_ `kwargs`
+        sig { params(kwargs: Object).returns(T.untyped) }
+        def v(**kwargs); end
+
+        # sord omit - no YARD return type given, using untyped
+        # _@param_ `kwargs`
+        sig { params(kwargs: T.untyped).returns(T.untyped) }
+        def y(**kwargs); end
+
+        # sord omit - no YARD return type given, using untyped
+        # _@param_ `args`
+        sig { params(args: T::Array[String]).returns(T.untyped) }
+        def z(*args); end
+
+        # sord omit - no YARD return type given, using untyped
+        # _@param_ `exclude`
+        sig { params(exclude: String).returns(T.untyped) }
+        def bar(*exclude); end
+
+        # sord omit - no YARD return type given, using untyped
+        # _@param_ `task_selectors`
+        sig { params(task_selectors: T::Array[T.any(Symbol, T::Array[T.untyped])]).returns(T.untyped) }
+        def merge_task_selectors(*task_selectors); end
+      end
+    RUBY
+
+    expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      module A
+        # sord omit - no YARD return type given, using untyped
+        # _@param_ `args`
+        def w: (*Object args) -> untyped
+
+        # sord omit - no YARD return type given, using untyped
+        # _@param_ `kwargs`
+        def x: (**Object kwargs) -> untyped
+
+        # sord omit - no YARD return type given, using untyped
+        # _@param_ `kwargs`
+        def v: (**Object kwargs) -> untyped
+
+        # sord omit - no YARD return type given, using untyped
+        # _@param_ `kwargs`
+        def y: (**untyped kwargs) -> untyped
+
+        # sord omit - no YARD return type given, using untyped
+        # _@param_ `args`
+        def z: (*::Array[String] args) -> untyped
+
+        # sord omit - no YARD return type given, using untyped
+        # _@param_ `exclude`
+        def bar: (*String exclude) -> untyped
+
+        # sord omit - no YARD return type given, using untyped
+        # _@param_ `task_selectors`
+        def merge_task_selectors: (*::Array[(Symbol | ::Array[untyped])] task_selectors) -> untyped
+      end
+    RUBY
+  end
+
+  it 'leaves a normal parameter\'s Array @param type unaffected by the splat unwrap' do
+    YARD.parse_string(<<-RUBY)
+      module A
+        # @param args [Array<Object>]
+        def normal(args); end
+      end
+    RUBY
+
+    expect(rbi_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      # typed: strong
+      module A
+        # sord omit - no YARD return type given, using untyped
+        # _@param_ `args`
+        sig { params(args: T::Array[Object]).returns(T.untyped) }
+        def normal(args); end
+      end
+    RUBY
+
+    expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+      module A
+        # sord omit - no YARD return type given, using untyped
+        # _@param_ `args`
+        def normal: (::Array[Object] args) -> untyped
       end
     RUBY
   end
@@ -1836,6 +2210,69 @@ END
       expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
         module A
           attr_reader x: String
+        end
+      RUBY
+    end
+
+    it 'are generated as methods in RBS when overriding a superclass attribute' do
+      YARD.parse_string(<<-RUBY)
+        class A
+          # @return [Numeric]
+          attr_reader :x
+
+          # @return [Numeric]
+          attr_accessor :y
+        end
+
+        class B < A
+          # @return [Integer]
+          attr_reader :x
+
+          # @return [Integer]
+          attr_accessor :y
+
+          # @return [String]
+          attr_reader :z
+        end
+      RUBY
+
+      expect(rbi_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+        # typed: strong
+        class A
+          sig { returns(Numeric) }
+          attr_reader :x
+
+          sig { returns(Numeric) }
+          attr_accessor :y
+        end
+
+        class B < A
+          sig { returns(Integer) }
+          attr_reader :x
+
+          sig { returns(Integer) }
+          attr_accessor :y
+
+          sig { returns(String) }
+          attr_reader :z
+        end
+      RUBY
+
+      expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+        class A
+          attr_reader x: Numeric
+
+          attr_accessor y: Numeric
+        end
+
+        class B < A
+          def x: () -> Integer
+
+          def y: () -> Integer
+
+          def y=: (Integer value) -> Integer
+
+          attr_reader z: String
         end
       RUBY
     end

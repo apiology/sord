@@ -299,6 +299,35 @@ module Sord
       method.overridden_method.tag(tag_name)
     end
 
+    # The names of type variables this method needs to declare in its own
+    # signature: those named by a solargraph-style `@generic` tag on the
+    # method itself. A `@generic` tag on the method's owning namespace is
+    # handled separately, as a type_member/class-level type parameter on the
+    # namespace itself (see #add_namespace) - not a per-method declaration.
+    # @param method [YARD::CodeObjects::MethodObject]
+    # @return [Array<Symbol>]
+    def generic_type_parameter_names(method)
+      method_tags(method, 'generic').map { |tag| tag.name.to_s.strip.to_sym }
+    end
+
+    # YARD cannot mark a block as optional, so a @yield description starting
+    # with "Optional" does instead. Blocks are otherwise required.
+    # @param method [YARD::CodeObjects::MethodObject]
+    # @return [Boolean]
+    def optional_block?(method)
+      method_tag(method, 'yield')&.text&.match?(/\Aoptional\b/i) || false
+    end
+
+    # @param type [Parlour::Types::Proc, Parlour::Types::Nilable]
+    # @return [Parlour::RbsGenerator::Block]
+    def rbs_block_for(type)
+      if type.is_a?(Parlour::Types::Nilable)
+        Parlour::RbsGenerator::Block.new(type.type, false)
+      else
+        Parlour::RbsGenerator::Block.new(type, true)
+      end
+    end
+
     # Given a YARD NamespaceObject, add lines defining its methods and their
     # signatures to the current file.
     # @param [YARD::CodeObjects::NamespaceObject] item
@@ -349,7 +378,8 @@ module Sord
           name = name_and_default.first
 
           if tag
-            TypeConverter.yard_to_parlour(tag.types, meth, @type_converter_config)
+            type = TypeConverter.yard_to_parlour(tag.types, meth, @type_converter_config)
+            unwrap_splat_param_type(type, name)
           elsif name.start_with? '&'
             # Find yieldparams and yieldreturn
             yieldparams = method_tags(meth, 'yieldparam')
@@ -370,7 +400,8 @@ module Sord
             if yieldparams.empty? && yieldreturn.nil?
               Parlour::Types::Untyped.new
             else
-              Parlour::Types::Proc.new(params, yieldreturn.nil? ? nil : returns)
+              proc_type = Parlour::Types::Proc.new(params, yieldreturn.nil? ? nil : returns)
+              optional_block?(meth) ? Parlour::Types::Nilable.new(proc_type) : proc_type
             end
           elsif meth.path.end_with? '='
             # Look for the matching getter method
@@ -447,7 +478,15 @@ module Sord
               )
             when :rbs
               if name.start_with?('&')
-                rbs_block = type
+                # RBS blocks need a proc type; accept any block otherwise
+                rbs_block = type.is_a?(Parlour::Types::Proc) || type.is_a?(Parlour::Types::Nilable) \
+                  ? type
+                  : Parlour::Types::Nilable.new(
+                      Parlour::Types::Proc.new(
+                        [Parlour::Types::Proc::Parameter.new('*args', Parlour::Types::Untyped.new)],
+                        Parlour::Types::Untyped.new
+                      )
+                    )
                 nil
               else
                 Parlour::RbsGenerator::Parameter.new(
@@ -471,7 +510,8 @@ module Sord
             meth.name.to_s,
             parameters: parlour_params,
             returns: returns,
-            class_method: meth.scope == :class
+            class_method: meth.scope == :class,
+            type_parameters: generic_type_parameter_names(meth)
           ) do |m|
             add_comments(meth, m)
           end
@@ -479,9 +519,8 @@ module Sord
           @current_object.create_method(
             meth.name.to_s,
             [Parlour::RbsGenerator::MethodSignature.new(
-              parlour_params, returns, block: rbs_block && !rbs_block.is_a?(Parlour::Types::Untyped) \
-                ? Parlour::RbsGenerator::Block.new(rbs_block, false)
-                : nil
+              parlour_params, returns, block: rbs_block && rbs_block_for(rbs_block),
+              type_parameters: generic_type_parameter_names(meth)
             )],
             class_method: meth.scope == :class
           ) do |m|
@@ -561,30 +600,12 @@ module Sord
           when :rbs
             if attr_loc == :class
               # RBS doesn't support class attr_accessors so create individual methods
-
-              if reader
-                @current_object.create_method(
-                  name.to_s,
-                  [Parlour::RbsGenerator::MethodSignature.new([], parlour_type)],
-                  class_method: true
-                ) do |m|
-                  add_comments(reader, m)
-                end
-              end
-
-              if writer
-                @current_object.create_method(
-                  "#{name}=",
-                  [Parlour::RbsGenerator::MethodSignature.new([Parlour::RbsGenerator::Parameter.new(
-                    "value",
-                    type: parlour_type,
-                    required: true
-                  )], parlour_type)],
-                  class_method: true
-                ) do |m|
-                  add_comments(writer, m)
-                end
-              end
+              add_rbs_attribute_methods(name, reader, writer, parlour_type, class_method: true)
+            elsif overrides_ancestor_attribute?(item, name)
+              # An RBS attribute also declares an instance variable, which
+              # can't change type from the one an ancestor declares, so
+              # declare only the methods
+              add_rbs_attribute_methods(name, reader, writer, parlour_type, class_method: false)
             else
               @current_object.create_attribute(
                 name.to_s,
@@ -596,6 +617,51 @@ module Sord
             end
           end
         end
+      end
+    end
+
+    # Adds RBS methods for an attribute's reader and/or writer.
+    # @param [Symbol] name
+    # @param [YARD::CodeObjects::MethodObject, nil] reader
+    # @param [YARD::CodeObjects::MethodObject, nil] writer
+    # @param [Parlour::Types::Type] parlour_type
+    # @param [Boolean] class_method
+    # @return [void]
+    def add_rbs_attribute_methods(name, reader, writer, parlour_type, class_method:)
+      if reader
+        @current_object.create_method(
+          name.to_s,
+          [Parlour::RbsGenerator::MethodSignature.new([], parlour_type)],
+          class_method: class_method
+        ) do |m|
+          add_comments(reader, m)
+        end
+      end
+
+      if writer
+        @current_object.create_method(
+          "#{name}=",
+          [Parlour::RbsGenerator::MethodSignature.new([Parlour::RbsGenerator::Parameter.new(
+            "value",
+            type: parlour_type,
+            required: true
+          )], parlour_type)],
+          class_method: class_method
+        ) do |m|
+          add_comments(writer, m)
+        end
+      end
+    end
+
+    # Whether an ancestor of a namespace declares an instance attribute
+    # with the given name.
+    # @param [YARD::CodeObjects::NamespaceObject] item
+    # @param [Symbol] name
+    # @return [Boolean]
+    def overrides_ancestor_attribute?(item, name)
+      item.inheritance_tree(true).drop(1).any? do |ancestor|
+        ancestor.is_a?(YARD::CodeObjects::NamespaceObject) &&
+          ancestor.attributes[:instance].key?(name)
       end
     end
 
@@ -612,11 +678,31 @@ module Sord
         superclass = "#{prefix}#{item.superclass.path}"
       end
 
+      # A solargraph-style @generic tag directly on this class/module makes
+      # it generic: a real Sorbet type_member per name for :rbi, or a
+      # type_parameters: entry in the class/module header for :rbs.
+      type_variable_names = item.tags('generic').map { |tag| tag.name.to_s.strip.to_sym }
+
       parent = @current_object
-      @current_object = item.type == :class \
-        ? parent.create_class(item.name.to_s, superclass: superclass)
-        : parent.create_module(item.name.to_s)
+      @current_object =
+        if item.type == :class
+          if @mode == :rbs
+            parent.create_class(item.name.to_s, superclass: superclass, type_parameters: type_variable_names)
+          else
+            parent.create_class(item.name.to_s, superclass: superclass)
+          end
+        else
+          if @mode == :rbs
+            parent.create_module(item.name.to_s, type_parameters: type_variable_names)
+          else
+            parent.create_module(item.name.to_s)
+          end
+        end
       @current_object.add_comments(item.docstring.all.split("\n"))
+
+      if @mode == :rbi
+        type_variable_names.each { |name| @current_object.create_type_member(name.to_s) }
+      end
 
       add_mixins(item)
       add_methods(item)
@@ -730,6 +816,24 @@ module Sord
       }
 
       return pair_type_order[pair1_type] <=> pair_type_order[pair2_type]
+    end
+
+    # YARD documents a splat/double-splat's collected type (Array<String>
+    # for *args, Hash{K=>V} for **kwargs), but RBI/RBS splat syntax wants
+    # each individual vararg/kwarg value's type. Strips exactly one
+    # Array/Hash layer to convert between the two; anything else (a normal
+    # parameter, or a type not wrapped in Array/Hash) passes through as-is.
+    # @param [Parlour::Types::Type] type
+    # @param [String] name
+    # @return [Parlour::Types::Type]
+    def unwrap_splat_param_type(type, name)
+      if name.start_with?('**')
+        type.is_a?(Parlour::Types::Hash) ? type.value : type
+      elsif name.start_with?('*')
+        type.is_a?(Parlour::Types::Array) ? type.element : type
+      else
+        type
+      end
     end
 
     # Removes the last character of a default parameter value if it begins with
