@@ -491,6 +491,33 @@ module Sord
       end
     end
 
+    # Splits each accessor whose reader and writer document different
+    # types into a separate reader and writer, so each keeps its own type.
+    # @param [Hash{Symbol => Hash{Symbol => YARD::CodeObjects::MethodObject, nil}}] attrs
+    # @return [Array<(Symbol, Hash{Symbol => YARD::CodeObjects::MethodObject, nil})>]
+    def split_typed_accessors(attrs)
+      attrs.flat_map do |name, attribute|
+        reader = attribute[:read]
+        writer = attribute[:write]
+        next [[name, attribute]] unless reader && writer
+        next [[name, attribute]] if @hide_private && [reader, writer].any? { |m| m.visibility == :private }
+
+        reader_types = attribute_yard_types(reader)
+        writer_types = attribute_yard_types(writer)
+        next [[name, attribute]] if reader_types.empty? || writer_types.empty? || reader_types == writer_types
+
+        [[name, { read: reader, write: nil }], [name, { read: nil, write: writer }]]
+      end
+    end
+
+    # The types documented on an attribute's reader or writer.
+    # @param [YARD::CodeObjects::MethodObject] method
+    # @return [Array<String>] sorted, without duplicates or void
+    def attribute_yard_types(method)
+      (method.tags('return').flat_map(&:types).compact.reject { |x| x.downcase == 'void' } +
+        method.tags('param').flat_map(&:types)).uniq.sort
+    end
+
     # Given a YARD NamespaceObject, add lines defining either its class
     # and instance attributes and their signatures to the current file.
     # @param [YARD::CodeObjects::NamespaceObject] item
@@ -499,7 +526,7 @@ module Sord
       [:class, :instance].each do |attr_loc|
         # Grab attributes for the current location (class or instance)
         attrs = item.attributes[attr_loc]
-        attrs.each do |name, attribute|
+        split_typed_accessors(attrs).each do |name, attribute|
           reader = attribute[:read]
           writer = attribute[:write]
 

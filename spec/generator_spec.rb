@@ -1816,6 +1816,65 @@ END
       RUBY
     end
 
+    it 'gives the reader and writer their own types' do
+      YARD.parse_string(<<-RUBY)
+        module A
+          class << self
+            # @return [Integer]
+            def x
+              @x ||= 0
+            end
+
+            # @param value [Integer, nil]
+            attr_writer :x
+          end
+
+          # @return [String]
+          def y
+            @y ||= ''
+          end
+
+          # @param value [String, nil]
+          attr_writer :y
+        end
+      RUBY
+
+      expect(rbi_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+        # typed: strong
+        module A
+          class << self
+            sig { returns(Integer) }
+            attr_reader :x
+
+            # _@param_ `value`
+            sig { params(x: T.nilable(Integer)).returns(T.nilable(Integer)) }
+            attr_writer :x
+          end
+
+          sig { returns(String) }
+          attr_reader :y
+
+          # _@param_ `value`
+          sig { params(y: T.nilable(String)).returns(T.nilable(String)) }
+          attr_writer :y
+        end
+      RUBY
+
+      expect(rbs_gen.generate.strip).to eq fix_heredoc(<<-RUBY)
+        module A
+          def self.x: () -> Integer
+
+          # _@param_ `value`
+          def self.x=: (Integer? value) -> Integer?
+
+          attr_reader y: String
+
+          # _@param_ `value`
+          attr_writer y: String?
+        end
+      RUBY
+    end
+
     it 'handles void returns' do
       YARD.parse_string(<<-RUBY)
         module A
