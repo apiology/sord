@@ -491,6 +491,33 @@ module Sord
       end
     end
 
+    # Splits each accessor whose reader and writer document different
+    # types into a separate reader and writer, so each keeps its own type.
+    # @param [Hash{Symbol => Hash{Symbol => YARD::CodeObjects::MethodObject, nil}}] attrs
+    # @return [Array<(Symbol, Hash{Symbol => YARD::CodeObjects::MethodObject, nil})>]
+    def split_typed_accessors(attrs)
+      attrs.flat_map do |name, attribute|
+        reader = attribute[:read]
+        writer = attribute[:write]
+        next [[name, attribute]] unless reader && writer
+        next [[name, attribute]] if @hide_private && [reader, writer].any? { |m| m.visibility == :private }
+
+        reader_types = attribute_yard_types(reader)
+        writer_types = attribute_yard_types(writer)
+        next [[name, attribute]] if reader_types.empty? || writer_types.empty? || reader_types == writer_types
+
+        [[name, { read: reader, write: nil }], [name, { read: nil, write: writer }]]
+      end
+    end
+
+    # The types documented on an attribute's reader or writer.
+    # @param [YARD::CodeObjects::MethodObject] method
+    # @return [Array<String>] sorted, without duplicates or void
+    def attribute_yard_types(method)
+      (method.tags('return').flat_map(&:types).compact.reject { |x| x.downcase == 'void' } +
+        method.tags('param').flat_map(&:types)).uniq.sort
+    end
+
     # Given a YARD NamespaceObject, add lines defining either its class
     # and instance attributes and their signatures to the current file.
     # @param [YARD::CodeObjects::NamespaceObject] item
@@ -499,7 +526,7 @@ module Sord
       [:class, :instance].each do |attr_loc|
         # Grab attributes for the current location (class or instance)
         attrs = item.attributes[attr_loc]
-        attrs.each do |name, attribute|
+        split_typed_accessors(attrs).each do |name, attribute|
           reader = attribute[:read]
           writer = attribute[:write]
 
@@ -508,30 +535,31 @@ module Sord
             next
           end
 
-          # Get the types given on each method
-          reader_yard_types = []
-          writer_yard_types = []
+          # Get all given types
+          yard_types = []
           if reader
             next if @hide_private && reader.visibility == :private
-            reader_yard_types = reader.tags('return').flat_map(&:types).compact.reject { |x| x.downcase == 'void' } +
+            yard_types += reader.tags('return').flat_map(&:types).compact.reject { |x| x.downcase == 'void' } +
               reader.tags('param').flat_map(&:types)
           end
           if writer
             next if @hide_private && writer.visibility == :private
-            writer_yard_types = writer.tags('return').flat_map(&:types).compact.reject { |x| x.downcase == 'void' } +
+            yard_types += writer.tags('return').flat_map(&:types).compact.reject { |x| x.downcase == 'void' } +
               writer.tags('param').flat_map(&:types)
           end
 
-          # A method with no types of its own uses the other method's
-          reader_yard_types = writer_yard_types if reader_yard_types.empty?
-          writer_yard_types = reader_yard_types if writer_yard_types.empty?
-
-          if reader_yard_types.empty?
+          # Use untyped if not types specified anywhere, otherwise try to
+          # compute Parlour type given all these types
+          if yard_types.empty?
             Logging.omit("no YARD type given for #{name.inspect}, using untyped", reader || writer)
+            parlour_type = Parlour::Types::Untyped.new
+          elsif yard_types.all? { |x| x == 'nil' }
+            # Nil attributes are extremely unusual, so just use untyped
+            parlour_type = Parlour::Types::Untyped.new
+          else
+            parlour_type = TypeConverter.yard_to_parlour(
+              yard_types, reader || writer, @type_converter_config)
           end
-          reader_type = attribute_parlour_type(reader_yard_types, reader || writer)
-          writer_type = attribute_parlour_type(writer_yard_types, writer || reader)
-          parlour_type = reader ? reader_type : writer_type
 
           # Generate attribute
           if reader && writer
@@ -547,26 +575,15 @@ module Sord
             next
           end
 
-          # An accessor whose reader and writer differ in type becomes a
-          # separate reader and writer
-          attributes =
-            if kind == :accessor && reader_type != writer_type
-              [[:reader, reader_type, reader], [:writer, writer_type, writer]]
-            else
-              [[kind, parlour_type, reader || writer]]
-            end
-
           case @mode
           when :rbi
-            attributes.each do |attr_kind, attr_type, attr_object|
-              @current_object.create_attribute(
-                name.to_s,
-                kind: attr_kind,
-                type: attr_type,
-                class_attribute: (attr_loc == :class)
-              ) do |m|
-                add_comments(attr_object, m)
-              end
+            @current_object.create_attribute(
+              name.to_s,
+              kind: kind,
+              type: parlour_type,
+              class_attribute: (attr_loc == :class)
+            ) do |m|
+              add_comments(reader || writer, m)
             end
           when :rbs
             if attr_loc == :class
@@ -575,7 +592,7 @@ module Sord
               if reader
                 @current_object.create_method(
                   name.to_s,
-                  [Parlour::RbsGenerator::MethodSignature.new([], reader_type)],
+                  [Parlour::RbsGenerator::MethodSignature.new([], parlour_type)],
                   class_method: true
                 ) do |m|
                   add_comments(reader, m)
@@ -587,40 +604,26 @@ module Sord
                   "#{name}=",
                   [Parlour::RbsGenerator::MethodSignature.new([Parlour::RbsGenerator::Parameter.new(
                     "value",
-                    type: writer_type,
+                    type: parlour_type,
                     required: true
-                  )], writer_type)],
+                  )], parlour_type)],
                   class_method: true
                 ) do |m|
                   add_comments(writer, m)
                 end
               end
             else
-              attributes.each do |attr_kind, attr_type, attr_object|
-                @current_object.create_attribute(
-                  name.to_s,
-                  kind: attr_kind,
-                  type: attr_type,
-                ) do |m|
-                  add_comments(attr_object, m)
-                end
+              @current_object.create_attribute(
+                name.to_s,
+                kind: kind,
+                type: parlour_type,
+              ) do |m|
+                add_comments(reader || writer, m)
               end
             end
           end
         end
       end
-    end
-
-    # Converts the YARD types given on an attribute's reader or writer to a
-    # Parlour type.
-    # @param [Array<String>] yard_types
-    # @param [YARD::CodeObjects::MethodObject] item
-    # @return [Parlour::Types::Type]
-    def attribute_parlour_type(yard_types, item)
-      # Nil attributes are extremely unusual, so just use untyped
-      return Parlour::Types::Untyped.new if yard_types.all? { |x| x == 'nil' }
-
-      TypeConverter.yard_to_parlour(yard_types, item, @type_converter_config)
     end
 
     # Given a YARD NamespaceObject, add lines defining its mixins, methods
